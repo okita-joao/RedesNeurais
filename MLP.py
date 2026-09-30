@@ -17,10 +17,10 @@ class Funcao_Ativacao:
     # Supõe que A = g(Z)
     def derivada_ativacao(self, A: np.ndarray, Z: np.ndarray) -> np.ndarray:
         if self.funcao == "sigmoide":
-            return np.power(A, 2)*(A - 1)
+            return A*(A - 1)
 
         else:
-            return Z
+            return np.ones_like(Z)
 
     def set_funcao_ativacao(self, funcao: str):
         self.funcao = funcao.lower()
@@ -87,57 +87,31 @@ class RedeMLP:
 
         return A
     
-    def fit(self, X_treino: np.ndarray, y_treino: np.ndarray, a: float, epocas: int):
-        m: int = X_treino.shape[0]
-        n: int = X_treino.shape[1]
-        s: int = y_treino.shape[0]
-        
-        for i in range(epocas):
-            # Executa a foward propagation e calcula a previsão da rede para todos os casos de exemplo
-            A = self.foward(X_treino)
+    def fit(self, X: np.ndarray, y: np.ndarray, a: float, epocas: int):
+        m = X.shape[0]
+        for epoca in range(epocas):
+            A = self.forward(X)
+            print(self.funcao_perca.calcula_perca(A, y) / m)
 
-            if(A.shape != y_treino.shape):
-                print("Erro no calculo da propagação, A.shape != y_treino.shape")
-                return 
+            # erro da camada de saída: (A - y) * g'(Z)
+            delta = (A - y) * self.camadas[-1].calcula_derivada_ativacao()
 
-            # Calcula e printa o valor da função de custo J da rede
-            J = self.funcao_perca.calcula_perca(A, y_treino)/m
-            print(J)
+            for l in range(len(self.camadas) - 1, -1, -1):
+                camada = self.camadas[l]
+                entrada = self.camadas[l-1].A if l > 0 else X
 
-            # Calcula o erro de forma iterativa de todas as camadas da rede, começando pela camada de saída
+                dW = delta.T @ entrada / m
+                db = delta.sum(axis=0, keepdims=True) / m
 
-            # Calculo da variação de J em função dos parâmetros da camada de saída
-            num_camadas: int = len(self.camadas)
-            camada_saida: Camada = self.camadas[num_camadas - 1]
-            derivada_camada_saida = camada_saida.calcula_derivada_ativacao().reshape(m, s) # g'(Z[saída])
+                # propaga o erro ANTES de atualizar os pesos
+                if l > 0:
+                    delta_ant = (delta @ camada.parametros) * self.camadas[l-1].calcula_derivada_ativacao()
 
-            erro_k: np.ndarray = (((A - y_treino).reshape(m, s))*derivada_camada_saida)/m
+                camada.parametros -= a * dW
+                camada.bias -= a * db
 
-            dJ = np.dot(erro_k.T, A)
-
-            # Atualizando os parâmetros da camada de saída
-            camada_saida.parametros = camada_saida.parametros - a*dJ
-
-            # Camadas restantes (até a camada de início)
-            for i in range(num_camadas - 2, 0, -1):
-                camada: Camada = self.camadas[i]
-                M = False
-                
-                if i >= 1:
-                    M = self.camadas[i-1].A
-                else:
-                    M = X_treino
-
-                derivada_camada = camada.calcula_derivada_ativacao() # g'(Z[camada[i]])
-
-                erro_j: np.ndarray = ((np.dot(erro_k, camada.parametros))*derivada_camada)/m
-
-                dJ = np.dot(erro_j.T, M)
-
-                # Aualizando os parâmetros da camada[i]
-                camada.parametros = camada.parametros - a*dJ
-
-                erro_k = erro_j.copy()
+                if l > 0:
+                    delta = delta_ant
 
     def set_funcao_perca(self, funcao: str):
         self.funcao_perca.set_funcao_perca(funcao)
